@@ -25,7 +25,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[])
   //   x, y, theta and their uncertainties from GPS) and all weights to 1. 
   // Add random Gaussian noise to each particle.
   // NOTE: Consult particle_filter.h for more information about this method (and others in this file).
-  num_particles = 3;
+  num_particles = 5;
 
   default_random_engine gen;
 
@@ -70,7 +70,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     if (yaw_rate == 0) // Just go straight
     {
       new_x = particles[i].x + velocity*delta_t*cos(theta0);
-      new_y = particles[i].x + velocity*delta_t*sin(theta0);
+      new_y = particles[i].y + velocity*delta_t*sin(theta0);
       new_theta = theta0;
     }
     else
@@ -101,11 +101,13 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
   for (int i = 0; i < observations.size(); i++)
   {
     int closest_id = 0;
-    double min_dist = dist(observations[i].x, observations[i].y, predicted[0].x, predicted[0].y);
+    double obs_x = observations[i].x;
+    double obs_y = observations[i].y;
+    double min_dist = dist(obs_x, obs_y, predicted[0].x, predicted[0].y);
 
     for (int j = 0; j < predicted.size(); j++)
     {
-      double curr_dist = dist(observations[i].x, observations[i].y, predicted[j].x, predicted[j].y);
+      double curr_dist = dist(obs_x, obs_y, predicted[j].x, predicted[j].y);
 
       if (curr_dist <= min_dist)
       {
@@ -157,7 +159,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
     }
 
     // Step 2: associate each transformed observation with a land mark identifier
-    std::vector<LandmarkObs> predicted_obs = observations_trans;
+    // Get landmark inrange
     std::vector<LandmarkObs> landmark_obs;
     for (int j = 0; j < map_landmarks.landmark_list.size(); j++)
     {
@@ -172,37 +174,44 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         landmark_obs.push_back(landmark);
       }
     }
-
-    dataAssociation(landmark_obs, predicted_obs);
+    std::vector<LandmarkObs> predicted_landmark = observations_trans;
+    dataAssociation(landmark_obs, predicted_landmark);
 
     // Step 3: calculate the particle's final weight
-    long double weight = 1.0;
+    long double final_weight = 1.0;
     double weight_part = 1.0;
     std::vector<int> associations;
     std::vector<double> sense_x;
     std::vector<double> sense_y;
+    double twoPiSigma = 2*M_PI*std_landmark[0]*std_landmark[1];
+    double twoSigmaXsquare = 2*pow(std_landmark[0],2);
+    double twoSigmaYsquare = 2*pow(std_landmark[1],2);
 
-    for (int j = 0; j < predicted_obs.size(); j++)
+    for (int j = 0; j < predicted_landmark.size(); j++)
     {
-      if (predicted_obs[j].id > 0)
+      if (predicted_landmark[j].id > 0)
       {
-        weight_part = 1/(2*M_PI*std_landmark[0]*std_landmark[1]) * 
-                        exp(-(pow(observations_trans[j].x-predicted_obs[j].x, 2)/(2*pow(std_landmark[0],2)) + 
-                          pow(observations_trans[j].y-predicted_obs[j].y, 2)/(2*pow(std_landmark[1],2))));
+        double x = observations_trans[j].x;
+        double y = observations_trans[j].y;
+        double nuy_x = predicted_landmark[j].x;
+        double nuy_y = predicted_landmark[j].y;
+        weight_part = 1./twoPiSigma * exp(-(pow(x-nuy_x, 2)/twoSigmaXsquare + 
+                                            pow(y-nuy_y, 2)/twoSigmaYsquare));
 
         if (weight_part > 0)
         {
-          weight *= weight_part;
+          final_weight *= weight_part;
         }
       }
-      associations.push_back(predicted_obs[j].id);
+
+      associations.push_back(predicted_landmark[j].id);
       sense_x.push_back(observations_trans[j].x);
       sense_y.push_back(observations_trans[j].y);
     }
-    particles[i].weight = (double)weight;
+    particles[i].weight = (double)final_weight;
+    weights[i] = particles[i].weight; // Update weights
 
     particles[i] = SetAssociations(particles[i], associations, sense_x, sense_y);
-    weights[i] = particles[i].weight; // Update weights
   }
 }
 
